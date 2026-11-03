@@ -63,6 +63,9 @@ struct Message {
     QString userID;
     QString timeoutUser;
     QString channelName;
+    /// Twitch room ID that originated this message in Shared Chat.
+    /// Empty for messages without Shared Chat source metadata.
+    QString sharedChatSourceRoomID;
     QColor usernameColor;
     QDateTime timestamp;
 
