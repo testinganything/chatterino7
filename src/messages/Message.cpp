@@ -58,6 +58,7 @@ std::shared_ptr<Message> Message::clone() const
     cloned->userID = this->userID;
     cloned->timeoutUser = this->timeoutUser;
     cloned->channelName = this->channelName;
+    cloned->sharedChatSourceRoomID = this->sharedChatSourceRoomID;
     cloned->usernameColor = this->usernameColor;
     cloned->timestamp = this->timestamp;
     cloned->twitchBadges = this->twitchBadges;
@@ -91,6 +92,7 @@ QJsonObject Message::toJson() const
         {"userID"_L1, this->userID},
         {"timeoutUser"_L1, this->timeoutUser},
         {"channelName"_L1, this->channelName},
+        {"sharedChatSourceRoomID"_L1, this->sharedChatSourceRoomID},
         {"usernameColor"_L1, this->usernameColor.name(QColor::HexArgb)},
         {"count"_L1, static_cast<qint64>(this->count)},
         {"timestamp"_L1, this->timestamp.toString(Qt::ISODate)},
