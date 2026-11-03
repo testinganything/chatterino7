@@ -55,6 +55,7 @@
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QStringBuilder>
+#include <QStringList>
 #include <QThread>
 #include <QTimer>
 #include <rapidjson/document.h>
@@ -2574,6 +2575,83 @@ const std::vector<HelixMinimalUser> &
     return this->sharedChatSessionParticipants_;
 }
 
+bool TwitchChannel::isSharedChatParticipantFocused(
+    const QString &channelId) const
+{
+    return this->sharedChatFocusedParticipantIds_.contains(channelId);
+}
+
+bool TwitchChannel::isSharedChatParticipantHidden(
+    const QString &channelId) const
+{
+    return this->sharedChatHiddenParticipantIds_.contains(channelId);
+}
+
+bool TwitchChannel::shouldDimSharedChatParticipant(
+    const QString &channelId) const
+{
+    if (this->sharedChatSessionParticipants_.empty() ||
+        this->sharedChatFocusedParticipantIds_.isEmpty())
+    {
+        return false;
+    }
+
+    // Messages without source-room-id belong to this channel itself.
+    const auto effectiveChannelId =
+        channelId.isEmpty() ? this->roomId() : channelId;
+    return !this->sharedChatFocusedParticipantIds_.contains(
+        effectiveChannelId);
+}
+
+void TwitchChannel::toggleSharedChatParticipantFocus(
+    const QString &channelId)
+{
+    if (channelId.isEmpty() ||
+        this->sharedChatHiddenParticipantIds_.contains(channelId))
+    {
+        return;
+    }
+
+    if (this->sharedChatFocusedParticipantIds_.contains(channelId))
+    {
+        this->sharedChatFocusedParticipantIds_.remove(channelId);
+    }
+    else
+    {
+        this->sharedChatFocusedParticipantIds_.insert(channelId);
+    }
+}
+
+void TwitchChannel::setSharedChatParticipantHidden(const QString &channelId,
+                                                   bool hidden)
+{
+    if (channelId.isEmpty())
+    {
+        return;
+    }
+
+    if (hidden)
+    {
+        this->sharedChatHiddenParticipantIds_.insert(channelId);
+        this->sharedChatFocusedParticipantIds_.remove(channelId);
+    }
+    else
+    {
+        this->sharedChatHiddenParticipantIds_.remove(channelId);
+    }
+}
+
+void TwitchChannel::clearSharedChatFocus()
+{
+    this->sharedChatFocusedParticipantIds_.clear();
+}
+
+void TwitchChannel::resetSharedChatParticipantFilters()
+{
+    this->sharedChatFocusedParticipantIds_.clear();
+    this->sharedChatHiddenParticipantIds_.clear();
+}
+
 void TwitchChannel::probeSharedChatSession()
 {
     auto now = QDateTime::currentDateTime();
@@ -2614,7 +2692,16 @@ void TwitchChannel::refreshSharedChatSessionState()
                 this->sharedChatSessionParticipants_.clear();
                 this->sharedChatSessionParticipantIds_.clear();
 
+                const bool hadSharedChatFilters =
+                    !this->sharedChatFocusedParticipantIds_.isEmpty() ||
+                    !this->sharedChatHiddenParticipantIds_.isEmpty();
+                this->resetSharedChatParticipantFilters();
+
                 this->sharedChatStatusChanged.invoke({});
+                if (hadSharedChatFilters)
+                {
+                    getApp()->getWindows()->forceLayoutChannelViews();
+                }
 
                 return;
             }
@@ -2666,6 +2753,40 @@ void TwitchChannel::refreshSharedChatSessionState()
                             this->sharedChatSessionParticipants_.push_back(
                                 {user.id, user.login, user.displayName});
                         }
+                    }
+
+                    // Drop presentation state for broadcasters that left the
+                    // session. Keep the channel owner, which is not in the
+                    // participant ID set returned by Twitch.
+                    QStringList staleFocusIds;
+                    for (const auto &id : this->sharedChatFocusedParticipantIds_)
+                    {
+                        if (id != this->roomId() &&
+                            !this->sharedChatSessionParticipantIds_.contains(id))
+                        {
+                            staleFocusIds.push_back(id);
+                        }
+                    }
+                    QStringList staleHiddenIds;
+                    for (const auto &id : this->sharedChatHiddenParticipantIds_)
+                    {
+                        if (id != this->roomId() &&
+                            !this->sharedChatSessionParticipantIds_.contains(id))
+                        {
+                            staleHiddenIds.push_back(id);
+                        }
+                    }
+                    for (const auto &id : staleFocusIds)
+                    {
+                        this->sharedChatFocusedParticipantIds_.remove(id);
+                    }
+                    for (const auto &id : staleHiddenIds)
+                    {
+                        this->sharedChatHiddenParticipantIds_.remove(id);
+                    }
+                    if (!staleFocusIds.isEmpty() || !staleHiddenIds.isEmpty())
+                    {
+                        getApp()->getWindows()->forceLayoutChannelViews();
                     }
 
                     this->nextSharedChatSessionUpdateTimer_.start();
