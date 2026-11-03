@@ -2533,6 +2533,7 @@ TwitchChannel *MessageBuilder::parseSharedChatInfo(Communi::TagsRef tags,
     if (auto optSourceRoom = tags.get("source-room-id"))
     {
         const auto &sourceRoom = *optSourceRoom;
+        this->message().sharedChatSourceRoomID = sourceRoom;
         if (twitchChannel->roomId() != sourceRoom)
         {
             this->message().flags.set(MessageFlag::SharedMessage);
