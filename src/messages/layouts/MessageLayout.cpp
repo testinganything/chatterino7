@@ -13,6 +13,8 @@
 #include "messages/MessageElement.hpp"
 #include "messages/Selection.hpp"
 #include "providers/colors/ColorProvider.hpp"
+#include "providers/twitch/TwitchChannel.hpp"
+#include "providers/twitch/TwitchIrcServer.hpp"
 #include "singletons/Settings.hpp"
 #include "singletons/StreamerMode.hpp"
 #include "singletons/WindowManager.hpp"
@@ -36,6 +38,32 @@ QColor blendColors(const QColor &base, const QColor &apply)
                    base.greenF() * (1 - alpha) + apply.greenF() * alpha,
                    base.blueF() * (1 - alpha) + apply.blueF() * alpha);
     return result;
+}
+
+bool isSharedChatMessageHidden(const Message &message)
+{
+    if (message.platform != MessagePlatform::AnyOrTwitch ||
+        message.channelName.isEmpty())
+    {
+        return false;
+    }
+
+    const auto channel =
+        getApp()->getTwitch()->getChannelOrEmpty(message.channelName);
+    const auto *sharedChatOwner =
+        dynamic_cast<const TwitchChannel *>(channel.get());
+    if (sharedChatOwner == nullptr ||
+        sharedChatOwner->getSharedChatSessionParticipants().empty())
+    {
+        return false;
+    }
+
+    // Messages from the channel hosting the session may not carry a
+    // source-room-id, so treat the owner as the source in that case.
+    const auto sourceRoomId = message.sharedChatSourceRoomID.isEmpty()
+                                  ? sharedChatOwner->roomId()
+                                  : message.sharedChatSourceRoomID;
+    return sharedChatOwner->isSharedChatParticipantHidden(sourceRoomId);
 }
 }  // namespace
 
@@ -155,8 +183,30 @@ void MessageLayout::actuallyLayout(const MessageLayoutContext &ctx)
     this->container_.beginLayout(ctx.width, this->scale_, this->imageScale_,
                                  messageFlags);
 
+    this->sharedChatHidden_ =
+        isSharedChatMessageHidden(*this->message_);
+    this->sharedChatDimmed_ = false;
+    if (this->message_->platform == MessagePlatform::AnyOrTwitch &&
+        !this->message_->channelName.isEmpty())
+    {
+        const auto channel = getApp()->getTwitch()->getChannelOrEmpty(
+            this->message_->channelName);
+        const auto *sharedChatOwner =
+            dynamic_cast<const TwitchChannel *>(channel.get());
+        this->sharedChatDimmed_ =
+            sharedChatOwner != nullptr &&
+            sharedChatOwner->shouldDimSharedChatParticipant(
+                this->message_->sharedChatSourceRoomID);
+    }
+
     for (const auto &element : this->message_->elements)
     {
+        if (this->sharedChatHidden_)
+        {
+            // A zero-height layout removes the message from the visible feed.
+            continue;
+        }
+
         if (hideModerated && this->message_->flags.has(MessageFlag::Disabled))
         {
             continue;
@@ -241,11 +291,17 @@ MessagePaintResult MessageLayout::paint(const MessagePaintContext &ctx)
     }
 
     // draw on buffer
+    ctx.painter.save();
+    if (this->sharedChatDimmed_)
+    {
+        ctx.painter.setOpacity(0.45);
+    }
     ctx.painter.drawPixmap(QPoint{0, ctx.y}, *pixmap);
 
     // draw gif emotes
     result.hasAnimatedElements =
         this->container_.paintAnimatedElements(ctx.painter, ctx.y);
+    ctx.painter.restore();
 
     // draw disabled
     if (this->message_->flags.has(MessageFlag::Disabled))
