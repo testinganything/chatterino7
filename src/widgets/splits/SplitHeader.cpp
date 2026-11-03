@@ -14,6 +14,8 @@
 #include "controllers/hotkeys/HotkeyCategory.hpp"
 #include "controllers/hotkeys/HotkeyController.hpp"
 #include "controllers/notifications/NotificationController.hpp"
+#include "messages/Message.hpp"
+#include "messages/layouts/MessageLayout.hpp"
 #include "providers/kick/KickChannel.hpp"
 #include "providers/twitch/api/Helix.hpp"
 #include "providers/twitch/TwitchAccount.hpp"
@@ -31,6 +33,7 @@
 #include "widgets/buttons/LabelButton.hpp"
 #include "widgets/buttons/SvgButton.hpp"
 #include "widgets/dialogs/SettingsDialog.hpp"
+#include "widgets/helper/ChannelView.hpp"
 #include "widgets/helper/CommonTexts.hpp"
 #include "widgets/Label.hpp"
 #include "widgets/splits/PinnedMessageWidget.hpp"
@@ -45,6 +48,7 @@
 #include <QMenu>
 #include <QMimeData>
 #include <QPainter>
+#include <QSet>
 
 #include <cmath>
 
@@ -566,6 +570,103 @@ std::unique_ptr<QMenu> SplitHeader::createMainMenu()
                 OPEN_MOD_VIEW_IN_BROWSER,
                 h->getDisplaySequence(HotkeyCategory::Split, "openModView"),
                 this->split_, &Split::openModViewInBrowser);
+        }
+    }
+
+    // A regular channel split has one Shared Chat session. /watching can
+    // contain several, so collect the sessions represented in its message feed.
+    std::vector<std::shared_ptr<TwitchChannel>> sharedChatChannels;
+    QSet<QString> sharedChatChannelIds;
+    auto addSharedChatChannel = [&](const ChannelPtr &channel) {
+        auto *candidate = dynamic_cast<TwitchChannel *>(channel.get());
+        if (candidate == nullptr ||
+            candidate->getSharedChatSessionParticipants().empty() ||
+            sharedChatChannelIds.contains(candidate->roomId()))
+        {
+            return;
+        }
+
+        sharedChatChannelIds.insert(candidate->roomId());
+        sharedChatChannels.push_back(
+            std::static_pointer_cast<TwitchChannel>(channel));
+    };
+
+    if (twitchChannel != nullptr)
+    {
+        addSharedChatChannel(selected);
+    }
+    else if (this->split_->getChannel()->getType() ==
+             Channel::Type::TwitchWatching)
+    {
+        for (const auto &layout :
+             this->split_->getChannelView().getMessagesSnapshot())
+        {
+            const auto *message = layout->getMessage();
+            if (message == nullptr || message->channelName.isEmpty())
+            {
+                continue;
+            }
+            addSharedChatChannel(
+                getApp()->getTwitch()->getChannelOrEmpty(message->channelName));
+        }
+    }
+
+    if (!sharedChatChannels.empty())
+    {
+        auto *sharedChatMenu = menu->addMenu("Shared Chat");
+        const auto mode = getSettings()->usernameDisplayMode.getEnum();
+        for (const auto &chatChannel : sharedChatChannels)
+        {
+            auto *channelMenu =
+                sharedChatMenu->addMenu(chatChannel->getDisplayName());
+            auto addParticipantActions = [this, chatChannel](
+                                             QMenu *participantMenu,
+                                             const QString &channelId) {
+                auto *focusAction =
+                    participantMenu->addAction("Spotlight channel");
+                focusAction->setCheckable(true);
+                focusAction->setChecked(
+                    chatChannel->isSharedChatParticipantFocused(channelId));
+                focusAction->setEnabled(
+                    !chatChannel->isSharedChatParticipantHidden(channelId));
+                QObject::connect(focusAction, &QAction::triggered, this,
+                                 [chatChannel, channelId] {
+                                     chatChannel->toggleSharedChatParticipantFocus(
+                                         channelId);
+                                     getApp()->getWindows()->forceLayoutChannelViews();
+                                 });
+
+                auto *hideAction =
+                    participantMenu->addAction("Hide messages");
+                hideAction->setCheckable(true);
+                hideAction->setChecked(
+                    chatChannel->isSharedChatParticipantHidden(channelId));
+                QObject::connect(hideAction, &QAction::toggled, this,
+                                 [chatChannel, channelId](bool hidden) {
+                                     chatChannel->setSharedChatParticipantHidden(
+                                         channelId, hidden);
+                                     getApp()->getWindows()->forceLayoutChannelViews();
+                                 });
+            };
+
+            auto *ownerMenu = channelMenu->addMenu(
+                chatChannel->getDisplayName() + " (this channel)");
+            addParticipantActions(ownerMenu, chatChannel->roomId());
+
+            for (const auto &participant :
+                 chatChannel->getSharedChatSessionParticipants())
+            {
+                auto *participantMenu =
+                    channelMenu->addMenu(participant.formatted(mode));
+                addParticipantActions(participantMenu, participant.id);
+            }
+
+            channelMenu->addSeparator();
+            channelMenu->addAction("Clear spotlight", this,
+                                   [chatChannel] {
+                                       chatChannel->clearSharedChatFocus();
+                                       getApp()->getWindows()->forceLayoutChannelViews();
+                                   });
         }
     }
 
