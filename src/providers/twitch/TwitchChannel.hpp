@@ -407,6 +407,19 @@ public:
 
     const std::vector<HelixMinimalUser> &getSharedChatSessionParticipants()
         const;
+
+    /// Returns whether this Shared Chat participant is spotlighted.
+    bool isSharedChatParticipantFocused(const QString &channelId) const;
+    /// Returns whether this Shared Chat participant is hidden.
+    bool isSharedChatParticipantHidden(const QString &channelId) const;
+    /// Returns whether messages from this participant should be dimmed.
+    /// An empty channelId represents the channel owning this chat.
+    bool shouldDimSharedChatParticipant(const QString &channelId) const;
+    void toggleSharedChatParticipantFocus(const QString &channelId);
+    void setSharedChatParticipantHidden(const QString &channelId, bool hidden);
+    void clearSharedChatFocus();
+    void resetSharedChatParticipantFilters();
+
     // Pinned message
     /**
      * Fetches the currently pinned message for this channel via the Helix API.
@@ -644,6 +657,10 @@ private:
      * changed since the last query of the shared chat session state.
      */
     QSet<QString> sharedChatSessionParticipantIds_;
+
+    // User-controlled Shared Chat presentation state (kept for this session).
+    QSet<QString> sharedChatFocusedParticipantIds_;
+    QSet<QString> sharedChatHiddenParticipantIds_;
 
     /**
      * Timer scheduling the next check of the shared chat session state.
