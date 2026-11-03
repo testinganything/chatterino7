@@ -134,6 +134,9 @@ private:
     int layoutState_ = -1;
     float scale_ = -1;
     float imageScale_ = -1.F;
+    // Cached until the next layout pass; focus/hide changes force a re-layout.
+    bool sharedChatHidden_ = false;
+    bool sharedChatDimmed_ = false;
     MessageElementFlags currentWordFlags_;
 
 #ifdef FOURTF
