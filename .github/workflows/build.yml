@@ -334,6 +334,8 @@ jobs:
               -DCHATTERINO_NIGHTLY_BUILD="${{ steps.build-type.outputs.NIGHTLY_BUILD }}" `
               -DFORCE_JSON_GENERATION=Off `
               -DCHATTERINO_SPELLCHECK=On `
+              -DCHATTERINO_UPDATER=Off `
+              -DCHATTERINO_EXTRA_BUILD_STRING="Custom Shared Chat build" `
               ..
           ninja
 
